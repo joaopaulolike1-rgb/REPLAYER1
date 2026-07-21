@@ -11,26 +11,24 @@ export interface ReplayStep {
   lastAction?: Action;
 }
 
-/**
- * Constrói a linha do tempo (steps) da simulação da mão com validações de segurança.
- */
 export function buildReplayTimeline(hand: HandHistory | null | undefined): ReplayStep[] {
-  // 🛡️ Guard Clause: Se a mão ou a lista de jogadores não existir, retorna array vazio
   if (!hand || !Array.isArray(hand.players)) {
-    console.warn('buildReplayTimeline: Objeto "hand" nulo ou sem a propriedade "players".', hand);
     return [];
   }
 
   const steps: ReplayStep[] = [];
 
-  // Mapeia os jogadores com segurança
   let currentPlayers: Player[] = hand.players.map((p) => ({
     ...p,
     chips: p.chips ?? 0,
+    isFolded: false,
+    isCurrentActor: false,
+    currentActionBadge: undefined,
   }));
 
   let currentPot = 0;
   const currentBoard: string[] = [];
+  const handBoard = Array.isArray(hand.board) ? hand.board : [];
   const actions: Action[] = Array.isArray(hand.actions) ? hand.actions : [];
 
   // Passo Inicial (Estado 0)
@@ -43,17 +41,52 @@ export function buildReplayTimeline(hand: HandHistory | null | undefined): Repla
     players: JSON.parse(JSON.stringify(currentPlayers)),
   });
 
-  // Processa as ações caso existam
+  // Processa as ações
   actions.forEach((action, idx) => {
+    // 1. Atualizar o board dinamicamente conforme a street
+    if (action.street === 'flop' && currentBoard.length < 3 && handBoard.length >= 3) {
+      currentBoard.length = 0;
+      currentBoard.push(...handBoard.slice(0, 3));
+    } else if (action.street === 'turn' && currentBoard.length < 4 && handBoard.length >= 4) {
+      currentBoard.length = 0;
+      currentBoard.push(...handBoard.slice(0, 4));
+    } else if (action.street === 'river' && currentBoard.length < 5 && handBoard.length >= 5) {
+      currentBoard.length = 0;
+      currentBoard.push(...handBoard.slice(0, 5));
+    }
+
+    // 2. Atualizar o pote
     if (['posts_sb', 'posts_bb', 'posts_ante', 'call', 'bet', 'raise'].includes(action.type)) {
       currentPot += action.amount || 0;
     }
 
+    // 3. Atualizar estado dos jogadores
     currentPlayers = currentPlayers.map((player) => {
-      if (player.name === action.player && action.amount > 0) {
-        return { ...player, chips: Math.max(0, player.chips - action.amount) };
+      const isActor = player.name === action.player;
+      let chips = player.chips;
+      let isFolded = player.isFolded ?? false;
+
+      if (isActor) {
+        if (action.amount > 0 && ['posts_sb', 'posts_bb', 'posts_ante', 'call', 'bet', 'raise'].includes(action.type)) {
+          chips = Math.max(0, player.chips - action.amount);
+        }
+        if (action.type === 'fold') {
+          isFolded = true;
+        }
       }
-      return player;
+
+      return {
+        ...player,
+        chips,
+        isFolded,
+        isCurrentActor: isActor,
+        currentActionBadge: isActor
+          ? {
+              type: action.type,
+              amount: action.amount,
+            }
+          : player.currentActionBadge,
+      };
     });
 
     const activePlayer = currentPlayers.find((p) => p.name === action.player);
@@ -61,7 +94,7 @@ export function buildReplayTimeline(hand: HandHistory | null | undefined): Repla
     steps.push({
       stepIndex: idx + 1,
       street: action.street,
-      description: `${action.player}: ${action.type.replace('_', ' ')} $${(action.amount || 0).toFixed(2)}`,
+      description: `${action.player}: ${action.type.replace('_', ' ')} ${action.amount ? `$${action.amount.toFixed(2)}` : ''}`,
       pot: currentPot,
       board: [...currentBoard],
       players: JSON.parse(JSON.stringify(currentPlayers)),
@@ -73,5 +106,4 @@ export function buildReplayTimeline(hand: HandHistory | null | undefined): Repla
   return steps;
 }
 
-// Alias para manter compatibilidade
 export const generateReplaySteps = buildReplayTimeline;

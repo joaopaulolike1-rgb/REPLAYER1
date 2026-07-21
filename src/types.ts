@@ -28,6 +28,12 @@ export interface Player {
   cards?: string[];
   position?: string;
   hasDealerButton?: boolean;
+  isFolded?: boolean;
+  isCurrentActor?: boolean;
+  currentActionBadge?: {
+    type: string;
+    amount?: number;
+  };
 }
 
 export interface GameInfo {

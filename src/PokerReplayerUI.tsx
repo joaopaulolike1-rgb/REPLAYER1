@@ -1,7 +1,7 @@
 import React from 'react';
 import { usePokerEngine } from './usePokerEngine';
-import type { ParsedPokerHand, Card } from './types';
-import './PokerReplayerStyles.css'; // Contém todo o CSS extraído do index.html
+import type { HandHistory, Player } from './types';
+import './PokerReplayerStyles.css';
 
 const suitSymbols: Record<string, string> = {
   clubs: '♣',
@@ -14,11 +14,67 @@ const suitSymbols: Record<string, string> = {
   d: '♦',
 };
 
-interface PokerReplayerUIProps {
-  hand: ParsedPokerHand;
+interface CardObject {
+  rank: string;
+  suit: string;
 }
 
-export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
+function parseCard(cardInput: string | CardObject | null | undefined): CardObject | 'back' | null {
+  if (!cardInput) return null;
+  if (cardInput === 'back') return 'back';
+  if (typeof cardInput === 'object' && cardInput.rank && cardInput.suit) {
+    return cardInput;
+  }
+  if (typeof cardInput === 'string') {
+    const trimmed = cardInput.trim();
+    if (trimmed.length >= 2) {
+      let rank = trimmed.slice(0, -1);
+      const suit = trimmed.slice(-1).toLowerCase();
+      if (rank === 'T') rank = '10';
+      return { rank, suit };
+    }
+  }
+  return null;
+}
+
+/**
+ * Calcula dinamicamente as coordenadas (top/left em %) de cada cadeira
+ * para distribuí-las em elipse ao redor da mesa.
+ */
+const getSeatPositionStyle = (seatNumber: number, maxSeats: number = 6): React.CSSProperties => {
+  const total = maxSeats || 6;
+  // Offset para posicionar a cadeira 1 no centro inferior da mesa (Hero/Botão)
+  const angle = ((seatNumber - 1) / total) * 2 * Math.PI + Math.PI / 2;
+  
+  const rx = 40; // Raio horizontal (% da largura)
+  const ry = 36; // Raio vertical (% da altura)
+
+  const left = 50 + rx * Math.cos(angle);
+  const top = 50 + ry * Math.sin(angle);
+
+  return {
+    position: 'absolute',
+    left: `${left.toFixed(2)}%`,
+    top: `${top.toFixed(2)}%`,
+    transform: 'translate(-50%, -50%)',
+  };
+};
+
+interface PokerReplayerUIProps {
+  hand?: HandHistory;
+  handData?: HandHistory;
+  engine?: ReturnType<typeof usePokerEngine>;
+}
+
+export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
+  hand,
+  handData,
+  engine: externalEngine,
+}) => {
+  const activeHand = hand || handData || null;
+  const internalEngine = usePokerEngine(activeHand);
+  const engine = externalEngine || internalEngine;
+
   const {
     currentStep,
     currentStepIndex,
@@ -30,19 +86,34 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
     nextStep,
     prevStep,
     goToStep,
-  } = usePokerEngine(hand);
+  } = engine;
 
-  if (!currentStep) return <div>Carregando Engine...</div>;
+  if (!currentStep) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', color: '#8a94a6' }}>
+        Nenhuma ação/mão selecionada para carregar no replayer.
+      </div>
+    );
+  }
 
-  const renderCard = (card: Card | 'back' | null, key: string | number) => {
+  const renderCard = (cardInput: any, key: string | number) => {
+    const card = parseCard(cardInput);
     if (!card) return null;
 
     if (card === 'back') {
       return <div key={key} className="card back" />;
     }
 
-    const suitClass = card.suit === 'c' ? 'clubs' : card.suit === 'h' ? 'hearts' : card.suit === 's' ? 'spades' : 'diamonds';
-    const symbol = suitSymbols[card.suit] || '';
+    const suitClass =
+      card.suit === 'c' || card.suit === 'clubs'
+        ? 'clubs'
+        : card.suit === 'h' || card.suit === 'hearts'
+        ? 'hearts'
+        : card.suit === 's' || card.suit === 'spades'
+        ? 'spades'
+        : 'diamonds';
+
+    const symbol = suitSymbols[card.suit] || suitSymbols[suitClass] || '';
 
     return (
       <div key={key} className={`card ${suitClass}`}>
@@ -52,19 +123,24 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
     );
   };
 
+  const tableName = activeHand?.game_info?.table_name || 'Mesa';
+  const pokerVariant = activeHand?.game_info?.poker_variant || "Hold'em";
+  const stakes = activeHand?.game_info?.stakes || '';
+  const maxSeats = activeHand?.game_info?.max_seats || 6;
+
   return (
     <div className="replayer-wrapper">
-      {/* 1. Cabeçalho de Metadados da Mesa */}
+      {/* Cabeçalho */}
       <div className="header-bar">
         <div>
-          <strong>{hand.gameInfo.tableName}</strong> | <span>{hand.gameInfo.pokerVariant}</span>
+          <strong>{tableName}</strong> | <span>{pokerVariant}</span>
         </div>
         <div>
-          Blinds: <strong>${hand.gameInfo.smallBlind.toFixed(2)}/${hand.gameInfo.bigBlind.toFixed(2)}</strong>
+          Stakes: <strong>{stakes}</strong>
         </div>
       </div>
 
-      {/* 2. Palco e Feltro Oval do Poker */}
+      {/* Feltro Oval da Mesa */}
       <div className="poker-stage">
         <div className="poker-table">
           {/* Pote Central e Bordo */}
@@ -73,43 +149,47 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
               Pote: ${currentStep.pot.toFixed(2)}
             </div>
             <div className="board-cards">
-              {currentStep.boardCards.map((c, i) => renderCard(c, i))}
+              {currentStep.board && currentStep.board.map((c, i) => renderCard(c, i))}
             </div>
           </div>
 
-          {/* Jogadores Renderizados Dinamicamente */}
+          {/* Jogadores Posicionados Dinamicamente */}
           <div id="seats-container">
-            {currentStep.players.map((player) => (
+            {currentStep.players.map((player: Player) => (
               <div
-                key={player.seatIndex}
-                className={`seat ${player.isHero ? 'is-hero' : ''} ${player.isFolded ? 'folded' : ''}`}
-                data-position={player.positionName}
+                key={player.seat || player.name}
+                className={`seat seat-${player.seat} ${player.isHero ? 'is-hero' : ''} ${player.isFolded ? 'folded' : ''}`}
+                data-seat={player.seat}
+                data-position={player.position || `Seat ${player.seat}`}
+                style={getSeatPositionStyle(player.seat, maxSeats)}
               >
                 {/* Cartas do Jogador */}
-                {player.cards && (
+                {player.cards && player.cards.length > 0 && (
                   <div className="player-cards">
-                    {player.cards.map((c, i) => renderCard(c, i))}
+                    {player.cards.map((c, i) =>
+                      renderCard(player.isFolded ? 'back' : c, i)
+                    )}
                   </div>
                 )}
 
                 {/* Caixa de Informações do Player */}
                 <div className={`player-box ${player.isCurrentActor ? 'active-actor' : ''}`}>
                   <div className="avatar">
-                    {player.name.substring(0, 2).toUpperCase()}
+                    {player.name ? player.name.substring(0, 2).toUpperCase() : 'P'}
                   </div>
                   <div className="player-info">
                     <div className="player-name">{player.name}</div>
-                    <div className="player-stack">${player.stack.toFixed(2)}</div>
+                    <div className="player-stack">${(player.chips ?? 0).toFixed(2)}</div>
                   </div>
 
-                  {/* Botão de Dealer (D) */}
+                  {/* Botão do Dealer */}
                   {player.hasDealerButton && <div className="dealer-button">D</div>}
                 </div>
 
                 {/* Badge de Ação Ativa */}
                 {player.currentActionBadge && (
                   <div className="action-badge">
-                    {player.currentActionBadge.type}{' '}
+                    {player.currentActionBadge.type.replace('_', ' ')}{' '}
                     {player.currentActionBadge.amount ? `$${player.currentActionBadge.amount.toFixed(2)}` : ''}
                   </div>
                 )}
@@ -119,7 +199,7 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
         </div>
       </div>
 
-      {/* 3. Painel de Controle e Barra de Progresso */}
+      {/* Controles do Replayer */}
       <div className="controls-bar">
         <button className="btn" onClick={prevStep} disabled={currentStepIndex === 0}>
           ❮ Anterior
@@ -127,21 +207,19 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
         <button className="btn btn-primary" onClick={togglePlay}>
           {isPlaying ? '⏸ Pause' : '▶ Play'}
         </button>
-        <button className="btn" onClick={nextStep} disabled={currentStepIndex === totalSteps - 1}>
+        <button className="btn" onClick={nextStep} disabled={currentStepIndex === totalSteps - 1 || totalSteps === 0}>
           Próximo ❯
         </button>
 
-        {/* Slider da Linha do Tempo */}
         <input
           type="range"
           min={0}
-          max={totalSteps - 1}
+          max={Math.max(0, totalSteps - 1)}
           value={currentStepIndex}
           onChange={(e) => goToStep(Number(e.target.value))}
           style={{ width: '180px', cursor: 'pointer' }}
         />
 
-        {/* Seletor de Velocidade */}
         <select
           value={playbackSpeed}
           onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
@@ -154,9 +232,8 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({ hand }) => {
         </select>
       </div>
 
-      {/* Descrição do Passo Atual */}
       <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#888', textAlign: 'center' }}>
-        Ação ({currentStepIndex + 1}/{totalSteps}): <strong>{currentStep.description}</strong>
+        Ação ({totalSteps > 0 ? currentStepIndex + 1 : 0}/{totalSteps}): <strong>{currentStep.description}</strong>
       </div>
     </div>
   );

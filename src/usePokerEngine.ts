@@ -1,19 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
-// IMPORTANTE: Use 'import type' para interfaces/tipos
 import type { HandHistory } from './types';
 import { buildReplayTimeline } from './replayerEngine';
-import type { ReplayStep } from './replayerEngine'; // 👈 Adicionado 'type' aqui
+import type { ReplayStep } from './replayerEngine';
 
-export function usePokerEngine(hand: HandHistory | null) {
+export function usePokerEngine(handOrSteps: HandHistory | ReplayStep[] | null) {
   const [steps, setSteps] = useState<ReplayStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1000); // ms por passo
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1000);
 
-  // Gera a lista de passos da simulação ao carregar a mão
   useEffect(() => {
-    if (hand && Array.isArray(hand.players)) {
-      const generatedSteps = buildReplayTimeline(hand);
+    if (Array.isArray(handOrSteps)) {
+      setSteps(handOrSteps);
+      setCurrentStepIndex(0);
+      setIsPlaying(false);
+    } else if (handOrSteps && Array.isArray((handOrSteps as HandHistory).players)) {
+      const generatedSteps = buildReplayTimeline(handOrSteps as HandHistory);
       setSteps(generatedSteps);
       setCurrentStepIndex(0);
       setIsPlaying(false);
@@ -22,9 +24,8 @@ export function usePokerEngine(hand: HandHistory | null) {
       setCurrentStepIndex(0);
       setIsPlaying(false);
     }
-  }, [hand]);
+  }, [handOrSteps]);
 
-  // Execução automática do Replay (Play/Pause)
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (isPlaying && steps.length > 0) {
@@ -42,7 +43,6 @@ export function usePokerEngine(hand: HandHistory | null) {
     return () => clearInterval(timer);
   }, [isPlaying, steps.length, playbackSpeed]);
 
-  // Controles do Replayer
   const play = useCallback(() => setIsPlaying(true), []);
   const pause = useCallback(() => setIsPlaying(false), []);
   const togglePlay = useCallback(() => setIsPlaying((prev) => !prev), []);
