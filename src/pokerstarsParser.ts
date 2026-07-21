@@ -9,13 +9,9 @@ import type {
   CategorizedHands 
 } from './types';
 
-/**
- * Converte o arquivo de texto corrido do PokerStars em uma lista de objetos HandHistory.
- */
 export function parsePokerstarsHandHistory(rawText: string): HandHistory[] {
   if (!rawText || !rawText.trim()) return [];
 
-  // Separa as mãos no padrão "PokerStars Hand #" ou "PokerStars Zoom Hand #"
   const handBlocks = rawText
     .split(/(?=PokerStars (?:Zoom )?Hand #)/g)
     .filter((block) => block.trim().length > 0);
@@ -27,7 +23,6 @@ function parseSingleHand(block: string): HandHistory | null {
   const lines = block.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length === 0) return null;
 
-  // 1. Parse Game Info
   const headerMatch = lines[0].match(/Hand #(\d+):\s+([^(]+)\s+\(([^)]+)\)\s+-\s+(.+)/);
   if (!headerMatch) return null;
 
@@ -57,7 +52,6 @@ function parseSingleHand(block: string): HandHistory | null {
     date_time: dateTime,
   };
 
-  // 2. Parse Players
   const players: Player[] = [];
   const seatRegex = /^Seat (\d+):\s+(.+)\s+\(\$(\d+(?:\.\d+)?) in chips\)/;
 
@@ -78,7 +72,6 @@ function parseSingleHand(block: string): HandHistory | null {
     }
   });
 
-  // 3. Identificar Hero e Cartas Fechadas
   let heroName: string | undefined;
   let heroCards: string[] | undefined;
   const dealtMatch = block.match(/Dealt to ([^\s\[]+) \[([^\]]+)\]/);
@@ -94,7 +87,6 @@ function parseSingleHand(block: string): HandHistory | null {
     }
   }
 
-  // 4. Parse Ações e Board
   const actions: Action[] = [];
   const board: string[] = [];
   let currentStreet: Street = 'preflop';
@@ -102,7 +94,6 @@ function parseSingleHand(block: string): HandHistory | null {
   let rake = 0;
 
   lines.forEach((line) => {
-    // Transições de Street
     if (line.startsWith('*** HOLE CARDS ***')) {
       currentStreet = 'preflop';
       return;
@@ -130,7 +121,6 @@ function parseSingleHand(block: string): HandHistory | null {
       return;
     }
 
-    // Leitura do Pote e Rake no Summary
     if (line.startsWith('Total pot')) {
       const potMatch = line.match(/Total pot \$(\d+(?:\.\d+)?)\s+\|\s+Rake \$(\d+(?:\.\d+)?)/);
       if (potMatch) {
@@ -140,7 +130,6 @@ function parseSingleHand(block: string): HandHistory | null {
       return;
     }
 
-    // Processamento de Ações por Jogador
     if (currentStreet !== 'summary') {
       parseActionLine(line, currentStreet, actions);
     }
@@ -159,7 +148,6 @@ function parseSingleHand(block: string): HandHistory | null {
 }
 
 function parseActionLine(line: string, street: Street, actions: Action[]) {
-  // Posts Small / Big Blind / Ante
   let match = line.match(/^([^:]+):\s+posts\s+(small blind|big blind|ante)\s+\$(\d+(?:\.\d+)?)/);
   if (match) {
     const type: ActionType = match[2] === 'small blind' ? 'posts_sb' : match[2] === 'big blind' ? 'posts_bb' : 'posts_ante';
@@ -167,49 +155,42 @@ function parseActionLine(line: string, street: Street, actions: Action[]) {
     return;
   }
 
-  // Folds
   match = line.match(/^([^:]+):\s+folds/);
   if (match) {
     actions.push({ player: match[1].trim(), type: 'fold', amount: 0, street, rawText: line });
     return;
   }
 
-  // Checks
   match = line.match(/^([^:]+):\s+checks/);
   if (match) {
     actions.push({ player: match[1].trim(), type: 'check', amount: 0, street, rawText: line });
     return;
   }
 
-  // Calls
   match = line.match(/^([^:]+):\s+calls\s+\$(\d+(?:\.\d+)?)/);
   if (match) {
     actions.push({ player: match[1].trim(), type: 'call', amount: parseFloat(match[2]), street, rawText: line });
     return;
   }
 
-  // Bets
   match = line.match(/^([^:]+):\s+bets\s+\$(\d+(?:\.\d+)?)/);
   if (match) {
     actions.push({ player: match[1].trim(), type: 'bet', amount: parseFloat(match[2]), street, rawText: line });
     return;
   }
 
-  // Raises
   match = line.match(/^([^:]+):\s+raises\s+\$(\d+(?:\.\d+)?)\s+to\s+\$(\d+(?:\.\d+)?)/);
   if (match) {
     actions.push({ player: match[1].trim(), type: 'raise', amount: parseFloat(match[3]), street, rawText: line });
     return;
   }
 
-  // Uncalled bet returned
   match = line.match(/^Uncalled bet\s+\(\$(\d+(?:\.\d+)?)\)\s+returned to\s+(.+)/);
   if (match) {
     actions.push({ player: match[2].trim(), type: 'uncalled_bet', amount: parseFloat(match[1]), street, rawText: line });
     return;
   }
 
-  // Collects from pot
   match = line.match(/^(.+)\s+collected\s+\$(\d+(?:\.\d+)?)\s+from pot/);
   if (match) {
     actions.push({ player: match[1].trim(), type: 'collects', amount: parseFloat(match[2]), street, rawText: line });
@@ -217,9 +198,6 @@ function parseActionLine(line: string, street: Street, actions: Action[]) {
   }
 }
 
-/**
- * Classifica as mãos entre Investimento vs Não Investimento vs VPIP
- */
 export function divideHandsByInvestment(hands: HandHistory[], heroName: string): CategorizedHands {
   const summaries = new Map<string, HandInvestmentSummary>();
 
@@ -228,6 +206,7 @@ export function divideHandsByInvestment(hands: HandHistory[], heroName: string):
   const vpip: HandHistory[] = [];
 
   let totalHeroInvestment = 0;
+  let totalHeroNetResult = 0;
 
   hands.forEach((hand) => {
     const heroActions = hand.actions.filter((a) => a.player === heroName);
@@ -253,6 +232,7 @@ export function divideHandsByInvestment(hands: HandHistory[], heroName: string):
     const collectedAmount = collected ? collected.amount : 0;
 
     const isInvested = investedAmount > 0;
+    const netResult = collectedAmount - investedAmount;
 
     const summary: HandInvestmentSummary = {
       handId: hand.game_info.hand_id,
@@ -261,7 +241,7 @@ export function divideHandsByInvestment(hands: HandHistory[], heroName: string):
       vpip: isVpip,
       investedAmount,
       collectedAmount,
-      netResult: collectedAmount - investedAmount,
+      netResult,
     };
 
     summaries.set(hand.game_info.hand_id, summary);
@@ -272,6 +252,7 @@ export function divideHandsByInvestment(hands: HandHistory[], heroName: string):
     if (isVpip) vpip.push(hand);
 
     totalHeroInvestment += investedAmount;
+    totalHeroNetResult += netResult;
   });
 
   const totalHands = hands.length;
@@ -293,6 +274,7 @@ export function divideHandsByInvestment(hands: HandHistory[], heroName: string):
       investedPercentage: totalHands > 0 ? (investedHands / totalHands) * 100 : 0,
       vpipPercentage: totalHands > 0 ? (vpipHands / totalHands) * 100 : 0,
       totalHeroInvestment,
+      totalHeroNetResult,
     },
   };
 }

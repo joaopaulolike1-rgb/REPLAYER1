@@ -1,6 +1,6 @@
 import React from 'react';
 import { usePokerEngine } from './usePokerEngine';
-import type { HandHistory, Player } from './types';
+import type { HandHistory, Player, HandInvestmentSummary } from './types';
 import './PokerReplayerStyles.css';
 
 const suitSymbols: Record<string, string> = {
@@ -37,17 +37,12 @@ function parseCard(cardInput: string | CardObject | null | undefined): CardObjec
   return null;
 }
 
-/**
- * Calcula dinamicamente as coordenadas (top/left em %) de cada cadeira
- * para distribuí-las em elipse ao redor da mesa.
- */
 const getSeatPositionStyle = (seatNumber: number, maxSeats: number = 6): React.CSSProperties => {
   const total = maxSeats || 6;
-  // Offset para posicionar a cadeira 1 no centro inferior da mesa (Hero/Botão)
   const angle = ((seatNumber - 1) / total) * 2 * Math.PI + Math.PI / 2;
   
-  const rx = 40; // Raio horizontal (% da largura)
-  const ry = 36; // Raio vertical (% da altura)
+  const rx = 40;
+  const ry = 36;
 
   const left = 50 + rx * Math.cos(angle);
   const top = 50 + ry * Math.sin(angle);
@@ -63,12 +58,16 @@ const getSeatPositionStyle = (seatNumber: number, maxSeats: number = 6): React.C
 interface PokerReplayerUIProps {
   hand?: HandHistory;
   handData?: HandHistory;
+  heroSummary?: HandInvestmentSummary;
+  sessionNetResult?: number;
   engine?: ReturnType<typeof usePokerEngine>;
 }
 
 export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
   hand,
   handData,
+  heroSummary,
+  sessionNetResult,
   engine: externalEngine,
 }) => {
   const activeHand = hand || handData || null;
@@ -96,6 +95,7 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
     );
   }
 
+  // Renderizador de Carta com Naipe no Canto Superior Direito
   const renderCard = (cardInput: any, key: string | number) => {
     const card = parseCard(cardInput);
     if (!card) return null;
@@ -117,8 +117,11 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
 
     return (
       <div key={key} className={`card ${suitClass}`}>
-        <div>{card.rank}</div>
-        <div style={{ alignSelf: 'flex-end' }}>{symbol}</div>
+        <div className="card-top-row">
+          <span className="card-rank">{card.rank}</span>
+          <span className="card-suit-top">{symbol}</span>
+        </div>
+        <div className="card-bottom-suit">{symbol}</div>
       </div>
     );
   };
@@ -128,22 +131,38 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
   const stakes = activeHand?.game_info?.stakes || '';
   const maxSeats = activeHand?.game_info?.max_seats || 6;
 
+  const handNet = heroSummary?.netResult;
+
   return (
     <div className="replayer-wrapper">
-      {/* Cabeçalho */}
+      {/* Cabeçalho do Replayer com Informações de Lucro */}
       <div className="header-bar">
         <div>
-          <strong>{tableName}</strong> | <span>{pokerVariant}</span>
+          <strong>{tableName}</strong> | <span>{pokerVariant}</span> | Stakes: <strong>{stakes}</strong>
         </div>
-        <div>
-          Stakes: <strong>{stakes}</strong>
+
+        <div style={{ display: 'flex', gap: '15px', fontSize: '0.85rem' }}>
+          {handNet !== undefined && (
+            <span>
+              Lucro Mão: <strong style={{ color: handNet >= 0 ? '#00e676' : '#ff5252' }}>
+                {handNet >= 0 ? '+' : ''}${handNet.toFixed(2)}
+              </strong>
+            </span>
+          )}
+
+          {sessionNetResult !== undefined && (
+            <span>
+              Sessão: <strong style={{ color: sessionNetResult >= 0 ? '#00e676' : '#ff5252' }}>
+                {sessionNetResult >= 0 ? '+' : ''}${sessionNetResult.toFixed(2)}
+              </strong>
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Feltro Oval da Mesa */}
+      {/* Feltro da Mesa */}
       <div className="poker-stage">
         <div className="poker-table">
-          {/* Pote Central e Bordo */}
           <div className="center-board">
             <div className="pot-container">
               Pote: ${currentStep.pot.toFixed(2)}
@@ -153,7 +172,6 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
             </div>
           </div>
 
-          {/* Jogadores Posicionados Dinamicamente */}
           <div id="seats-container">
             {currentStep.players.map((player: Player) => (
               <div
@@ -172,7 +190,7 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
                   </div>
                 )}
 
-                {/* Caixa de Informações do Player */}
+                {/* Box de Informações do Jogador */}
                 <div className={`player-box ${player.isCurrentActor ? 'active-actor' : ''}`}>
                   <div className="avatar">
                     {player.name ? player.name.substring(0, 2).toUpperCase() : 'P'}
@@ -182,11 +200,9 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
                     <div className="player-stack">${(player.chips ?? 0).toFixed(2)}</div>
                   </div>
 
-                  {/* Botão do Dealer */}
                   {player.hasDealerButton && <div className="dealer-button">D</div>}
                 </div>
 
-                {/* Badge de Ação Ativa */}
                 {player.currentActionBadge && (
                   <div className="action-badge">
                     {player.currentActionBadge.type.replace('_', ' ')}{' '}
@@ -199,7 +215,7 @@ export const PokerReplayerUI: React.FC<PokerReplayerUIProps> = ({
         </div>
       </div>
 
-      {/* Controles do Replayer */}
+      {/* Controles de Reprodução */}
       <div className="controls-bar">
         <button className="btn" onClick={prevStep} disabled={currentStepIndex === 0}>
           ❮ Anterior

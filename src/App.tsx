@@ -1,13 +1,11 @@
 import React, { useState, useMemo, ChangeEvent } from 'react';
-import type { HandHistory, FilterType, HandInvestmentSummary } from './types';
+import type { HandHistory, FilterType } from './types';
 import { parsePokerstarsHandHistory, divideHandsByInvestment } from './pokerstarsParser';
-import  { buildReplayTimeline } from './replayerEngine';
-import type { ReplayStep } from './replayerEngine';
+import { buildReplayTimeline } from './replayerEngine';
 import { usePokerEngine } from './usePokerEngine';
 import { PokerReplayerUI } from './PokerReplayerUI';
 import './PokerReplayerStyles.css';
 
-// Amostra Padrão para Teste Rápido (Caso o usuário abra sem carregar arquivo)
 const SAMPLE_HAND_TXT = `PokerStars Zoom Hand #261495545060:  Hold'em No Limit ($0.02/$0.05) - 2026/07/20 18:49:25 BRT [2026/07/20 17:49:25 ET]
 Table 'Donati' 6-max Seat #1 is the button
 Seat 1: Xumbin Jr ($13.97 in chips) 
@@ -48,25 +46,25 @@ Seat 6: ScriptPokker folded before Flop (didn't bet)
 `;
 
 export const App: React.FC = () => {
-  // Estados Globais da Aplicação
   const [rawText, setRawText] = useState<string>(SAMPLE_HAND_TXT);
   const [heroName, setHeroName] = useState<string>('McLovinAAKK');
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [selectedHandIndex, setSelectedHandIndex] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'replayer' | 'hands_list' | 'json_view'>('replayer');
 
-  // 1. Processa o arquivo de histórico sempre que o texto raw muda
+  // Estados de Ordenação da Tabela
+  const [sortColumn, setSortColumn] = useState<'investedAmount' | 'totalPot' | 'netResult' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
   const parsedHands: HandHistory[] = useMemo(() => {
     if (!rawText.trim()) return [];
     return parsePokerstarsHandHistory(rawText);
   }, [rawText]);
 
-  // 2. Classificação das mãos (Investimento vs Não Investimento vs VPIP)
   const categorizedHands = useMemo(() => {
     return divideHandsByInvestment(parsedHands, heroName);
   }, [parsedHands, heroName]);
 
-  // 3. Aplica o filtro selecionado pelo usuário
   const filteredHands = useMemo(() => {
     switch (filterType) {
       case 'invested':
@@ -80,20 +78,44 @@ export const App: React.FC = () => {
     }
   }, [categorizedHands, filterType]);
 
-  // Mão ativa selecionada
-  const activeHand: HandHistory | undefined = filteredHands[selectedHandIndex] || filteredHands[0];
+  // Lista Ordenada Dinamicamente
+  const sortedHands = useMemo(() => {
+    if (!sortColumn) return filteredHands;
 
-  // 4. Gera a linha do tempo de estados (Snapshots) para o Replayer da mão ativa
+    return [...filteredHands].sort((a, b) => {
+      const summaryA = categorizedHands.summaries.get(a.game_info.hand_id);
+      const summaryB = categorizedHands.summaries.get(b.game_info.hand_id);
+
+      let valA = 0;
+      let valB = 0;
+
+      if (sortColumn === 'investedAmount') {
+        valA = summaryA?.investedAmount ?? 0;
+        valB = summaryB?.investedAmount ?? 0;
+      } else if (sortColumn === 'totalPot') {
+        valA = a.pot.total_pot ?? 0;
+        valB = b.pot.total_pot ?? 0;
+      } else if (sortColumn === 'netResult') {
+        valA = summaryA?.netResult ?? 0;
+        valB = summaryB?.netResult ?? 0;
+      }
+
+      if (valA === valB) return 0;
+      return sortDirection === 'asc' ? valA - valB : valB - valA;
+    });
+  }, [filteredHands, sortColumn, sortDirection, categorizedHands]);
+
+  const activeHand: HandHistory | undefined = filteredHands[selectedHandIndex] || filteredHands[0];
+  const activeHeroSummary = activeHand ? categorizedHands.summaries.get(activeHand.game_info.hand_id) : undefined;
+
   const snapshots = useMemo(() => {
     if (!activeHand) return [];
     return buildReplayTimeline(activeHand);
   }, [activeHand]);
 
-  // Hook da Engine de Animação / Controle da Linha do Tempo
   const engine = usePokerEngine(snapshots);
 
-  // Manipulador de upload de arquivo .txt
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: ChangeEvent<InputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -104,7 +126,6 @@ export const App: React.FC = () => {
         setRawText(content);
         setSelectedHandIndex(0);
 
-        // Auto-detecta o Hero procurando por "Dealt to [Nome]"
         const heroMatch = content.match(/Dealt to ([^\s\[]+)/);
         if (heroMatch && heroMatch[1]) {
           setHeroName(heroMatch[1]);
@@ -114,10 +135,30 @@ export const App: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const toggleSort = (column: 'investedAmount' | 'totalPot' | 'netResult') => {
+    if (sortColumn === column) {
+      if (sortDirection === 'desc') {
+        setSortDirection('asc');
+      } else {
+        setSortColumn(null);
+        setSortDirection('desc');
+      }
+    } else {
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
+  const getSortIcon = (column: 'investedAmount' | 'totalPot' | 'netResult') => {
+    if (sortColumn !== column) return ' ↕';
+    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  };
+
+  const sessionNet = categorizedHands.metrics.totalHeroNetResult;
+
   return (
     <div className="app-container" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
-      
-      {/* CAMEÇALHO E PAINEL DE UPLOAD */}
+      {/* CABEÇALHO E UPLOAD */}
       <header style={{
         background: '#1a1d24',
         padding: '20px',
@@ -140,7 +181,6 @@ export const App: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Input do Hero */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '0.75rem', color: '#8a94a6', fontWeight: 'bold' }}>HERO (JOGADOR):</label>
             <input
@@ -160,7 +200,6 @@ export const App: React.FC = () => {
             />
           </div>
 
-          {/* Botão de Upload */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '0.75rem', color: '#8a94a6', fontWeight: 'bold' }}>ARQUIVO DE MÃOS (.TXT):</label>
             <label style={{
@@ -181,10 +220,10 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* PAINEL DE MÉTRICAS E DASHBOARD */}
+      {/* DASHBOARD COM LUCRO/PERDA DA SESSÃO */}
       <section style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
         gap: '15px',
         marginBottom: '20px'
       }}>
@@ -211,9 +250,9 @@ export const App: React.FC = () => {
           </span>
         </div>
         <div style={cardStyle}>
-          <span style={cardLabelStyle}>Total Investido pelo Hero</span>
-          <span style={{ ...cardValueStyle, color: '#ff5252' }}>
-            ${categorizedHands.metrics.totalHeroInvestment.toFixed(2)}
+          <span style={cardLabelStyle}>Lucro/Perda da Sessão (Hero)</span>
+          <span style={{ ...cardValueStyle, color: sessionNet >= 0 ? '#00e676' : '#ff5252' }}>
+            {sessionNet >= 0 ? '+' : ''}${sessionNet.toFixed(2)}
           </span>
         </div>
       </section>
@@ -230,52 +269,29 @@ export const App: React.FC = () => {
         flexWrap: 'wrap',
         gap: '10px'
       }}>
-        {/* Filtros de Investimento */}
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => { setFilterType('all'); setSelectedHandIndex(0); }}
-            style={filterButtonStyle(filterType === 'all')}
-          >
+          <button onClick={() => { setFilterType('all'); setSelectedHandIndex(0); }} style={filterButtonStyle(filterType === 'all')}>
             Todas ({categorizedHands.all.length})
           </button>
-          <button
-            onClick={() => { setFilterType('invested'); setSelectedHandIndex(0); }}
-            style={filterButtonStyle(filterType === 'invested', '#ffbd2e')}
-          >
+          <button onClick={() => { setFilterType('invested'); setSelectedHandIndex(0); }} style={filterButtonStyle(filterType === 'invested', '#ffbd2e')}>
             💰 Investiu ({categorizedHands.invested.length})
           </button>
-          <button
-            onClick={() => { setFilterType('non_invested'); setSelectedHandIndex(0); }}
-            style={filterButtonStyle(filterType === 'non_invested', '#8a94a6')}
-          >
+          <button onClick={() => { setFilterType('non_invested'); setSelectedHandIndex(0); }} style={filterButtonStyle(filterType === 'non_invested', '#8a94a6')}>
             🚫 Não Investiu ({categorizedHands.nonInvested.length})
           </button>
-          <button
-            onClick={() => { setFilterType('vpip'); setSelectedHandIndex(0); }}
-            style={filterButtonStyle(filterType === 'vpip', '#00e676')}
-          >
+          <button onClick={() => { setFilterType('vpip'); setSelectedHandIndex(0); }} style={filterButtonStyle(filterType === 'vpip', '#00e676')}>
             🔥 VPIP ({categorizedHands.vpip.length})
           </button>
         </div>
 
-        {/* Abas de Navegação */}
         <div style={{ display: 'flex', gap: '6px' }}>
-          <button
-            onClick={() => setActiveTab('replayer')}
-            style={tabButtonStyle(activeTab === 'replayer')}
-          >
+          <button onClick={() => setActiveTab('replayer')} style={tabButtonStyle(activeTab === 'replayer')}>
             🃏 Replayer Visual
           </button>
-          <button
-            onClick={() => setActiveTab('hands_list')}
-            style={tabButtonStyle(activeTab === 'hands_list')}
-          >
+          <button onClick={() => setActiveTab('hands_list')} style={tabButtonStyle(activeTab === 'hands_list')}>
             📋 Lista de Mãos
           </button>
-          <button
-            onClick={() => setActiveTab('json_view')}
-            style={tabButtonStyle(activeTab === 'json_view')}
-          >
+          <button onClick={() => setActiveTab('json_view')} style={tabButtonStyle(activeTab === 'json_view')}>
             📄 JSON Estrutural
           </button>
         </div>
@@ -290,8 +306,6 @@ export const App: React.FC = () => {
         borderTop: 'none',
         minHeight: '500px'
       }}>
-        
-        {/* SELETOR DE MÃO ATIVA (SE HOUVER MAIS DE UMA MÃO) */}
         {filteredHands.length > 0 && (
           <div style={{
             display: 'flex',
@@ -328,12 +342,17 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* ABA 1: REPLAYER VISUAL DA MESA */}
+        {/* ABA 1: REPLAYER */}
         {activeTab === 'replayer' && activeHand && (
-          <PokerReplayerUI handData={activeHand} engine={engine} />
+          <PokerReplayerUI 
+            handData={activeHand} 
+            engine={engine}
+            heroSummary={activeHeroSummary}
+            sessionNetResult={sessionNet}
+          />
         )}
 
-        {/* ABA 2: LISTA DETALHADA DE MÃOS */}
+        {/* ABA 2: LISTA DE MÃOS COM CABEÇALHOS ORDENÁVEIS */}
         {activeTab === 'hands_list' && (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
@@ -342,21 +361,48 @@ export const App: React.FC = () => {
                   <th style={thStyle}>ID da Mão</th>
                   <th style={thStyle}>Mesa / Stakes</th>
                   <th style={thStyle}>Cartas do Hero</th>
-                  <th style={thStyle}>Investimento Total</th>
+
+                  {/* Coluna Ordenável: Investimento Total */}
+                  <th 
+                    style={{ ...thStyle, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => toggleSort('investedAmount')}
+                  >
+                    Investimento Total {getSortIcon('investedAmount')}
+                  </th>
+
                   <th style={thStyle}>VPIP?</th>
-                  <th style={thStyle}>Resultado do Pote</th>
+
+                  {/* Coluna Ordenável: Resultado do Pote */}
+                  <th 
+                    style={{ ...thStyle, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => toggleSort('totalPot')}
+                  >
+                    Resultado do Pote {getSortIcon('totalPot')}
+                  </th>
+
+                  {/* Coluna Ordenável: Lucro/Perda Hero */}
+                  <th 
+                    style={{ ...thStyle, cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => toggleSort('netResult')}
+                  >
+                    Lucro/Perda Hero {getSortIcon('netResult')}
+                  </th>
+
                   <th style={thStyle}>Ação</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredHands.map((hand, index) => {
+                {sortedHands.map((hand) => {
                   const summary = categorizedHands.summaries.get(hand.game_info.hand_id);
+                  const isSelected = hand.game_info.hand_id === activeHand?.game_info.hand_id;
+                  const net = summary?.netResult ?? 0;
+
                   return (
                     <tr
                       key={hand.game_info.hand_id}
                       style={{
                         borderBottom: '1px solid #2a2f3d',
-                        background: index === selectedHandIndex ? '#252a38' : 'transparent'
+                        background: isSelected ? '#252a38' : 'transparent'
                       }}
                     >
                       <td style={tdStyle}>#{hand.game_info.hand_id}</td>
@@ -377,10 +423,17 @@ export const App: React.FC = () => {
                         )}
                       </td>
                       <td style={tdStyle}>${hand.pot.total_pot.toFixed(2)}</td>
+                      
+                      {/* Lucro/Perda por Mão do Hero */}
+                      <td style={{ ...tdStyle, fontWeight: 'bold', color: net >= 0 ? '#00e676' : '#ff5252' }}>
+                        {net >= 0 ? '+' : ''}${net.toFixed(2)}
+                      </td>
+
                       <td style={tdStyle}>
                         <button
                           onClick={() => {
-                            setSelectedHandIndex(index);
+                            const realIdx = filteredHands.findIndex(h => h.game_info.hand_id === hand.game_info.hand_id);
+                            setSelectedHandIndex(realIdx >= 0 ? realIdx : 0);
                             setActiveTab('replayer');
                           }}
                           style={{
@@ -404,7 +457,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* ABA 3: VISUALIZADOR DE JSON ESTRUTURAL */}
+        {/* ABA 3: JSON */}
         {activeTab === 'json_view' && activeHand && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -440,13 +493,11 @@ export const App: React.FC = () => {
             </pre>
           </div>
         )}
-
       </div>
     </div>
   );
 };
 
-// Estilos Auxiliares do Dashboard
 const cardStyle: React.CSSProperties = {
   background: '#1a1d24',
   padding: '15px',

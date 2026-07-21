@@ -88,5 +88,6 @@ export interface CategorizedHands {
     investedPercentage: number;
     vpipPercentage: number;
     totalHeroInvestment: number;
+    totalHeroNetResult: number;
   };
 }

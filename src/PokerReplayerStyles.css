@@ -1,4 +1,3 @@
-/* Estilos extraídos da interface index.html */
 .replayer-wrapper {
   display: flex;
   flex-direction: column;
@@ -71,6 +70,7 @@
   gap: 6px;
 }
 
+/* Estilização da Carta */
 .card {
   width: 38px;
   height: 54px;
@@ -79,11 +79,36 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 3px;
+  padding: 3px 4px;
   font-weight: bold;
   font-size: 0.85rem;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
   user-select: none;
+  box-sizing: border-box;
+}
+
+/* Topo da Carta: Rank à Esquerda + Naipe à Direita */
+.card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  line-height: 1;
+}
+
+.card-rank {
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.card-suit-top {
+  font-size: 0.75rem;
+}
+
+.card-bottom-suit {
+  align-self: flex-end;
+  font-size: 0.85rem;
+  line-height: 1;
 }
 
 .card.clubs, .card.spades { color: #111111; }
@@ -95,7 +120,7 @@
   border: 2px solid #ffffff;
 }
 
-/* Posicionamento Geográfico dos Assentos */
+/* Posicionamento dos Jogadores */
 .seat {
   position: absolute;
   width: 110px;
@@ -110,12 +135,32 @@
   opacity: 0.4;
 }
 
-.seat[data-position="top"]          { top: 0%;   left: 50%; }
-.seat[data-position="top_right"]    { top: 20%;  left: 92%; }
-.seat[data-position="bottom_right"] { top: 80%;  left: 92%; }
-.seat[data-position="bottom"]       { top: 100%; left: 50%; }
-.seat[data-position="bottom_left"]  { top: 80%;  left: 8%;  }
-.seat[data-position="top_left"]     { top: 20%;  left: 8%;  }
+/* Cartas na Mesa por Jogador - z-index e top elevados para evitar sobreposição */
+.player-cards {
+  display: flex;
+  gap: 3px;
+  position: absolute;
+  top: -38px;
+  z-index: 10;
+}
+
+.player-cards .card {
+  width: 28px;
+  height: 40px;
+  padding: 2px 3px;
+}
+
+.player-cards .card .card-rank {
+  font-size: 0.7rem;
+}
+
+.player-cards .card .card-suit-top {
+  font-size: 0.65rem;
+}
+
+.player-cards .card .card-bottom-suit {
+  display: none;
+}
 
 .player-box {
   width: 100%;
@@ -129,6 +174,7 @@
   box-shadow: 0 4px 8px rgba(0,0,0,0.5);
   position: relative;
   transition: border-color 0.2s;
+  z-index: 1;
 }
 
 .player-box.active-actor {
@@ -173,19 +219,6 @@
   font-weight: bold;
 }
 
-.player-cards {
-  display: flex;
-  gap: 2px;
-  position: absolute;
-  top: -25px;
-}
-
-.player-cards .card {
-  width: 24px;
-  height: 34px;
-  font-size: 0.65rem;
-}
-
 .action-badge {
   position: absolute;
   bottom: -20px;
@@ -197,6 +230,7 @@
   border-radius: 8px;
   white-space: nowrap;
   box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  z-index: 2;
 }
 
 .dealer-button {
